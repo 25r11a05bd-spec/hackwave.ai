@@ -75,7 +75,7 @@ Stage 3: AST Parsing (Tree-sitter + Semgrep)
 Stage 4: Deterministic SAST (Semgrep Core Rules)
         │  Executes 248+ Semgrep rulesets (semgrep-rules/patchline-rules.yml) + Regex secrets rules
         ▼
-Stage 5: Supplementary AI Scan (GPT-4.1 mini)
+Stage 5: Supplementary AI Scan (Qwen3-Coder-30B-A3B / gpt-4.1-mini)
         │  Evaluates SAST candidates to prune false positives & surface business logic flaws
         ▼
 Stage 6: RAG Memory Recall (Chroma Cloud Vector DB)
@@ -118,7 +118,7 @@ finding_memory collection                    1. Owner-scoped query (ownerId + ha
                                               - [COMMUNITY PRIOR ART]
                                                         │
                                                         ▼
-                                              _generate_fix (gpt-5.2) generates
+                                              _generate_fix (Qwen3-Coder-480B-A35B / gpt-5.2) generates
                                               patch obeying critical directives
                                                         │
                                                         ▼
