@@ -240,7 +240,7 @@ jwt_payload_schema:
 2. **Stage 2 (REPO_FETCH):** GitHub API Git tree fetch (no local arbitrary command execution).
 3. **Stage 3 (AST_PARSING):** Tree-sitter & Semgrep AST building for JavaScript, TypeScript, Python, Go.
 4. **Stage 4 (DETERMINISTIC_SAST):** 248+ Semgrep rules + secret regex patterns executed.
-5. **Stage 5 (AI_SUPPLEMENTARY):** LLM (GPT-4.1 mini) checks false positives & complex logic flaws.
+5. **Stage 5 (AI_SUPPLEMENTARY):** AI analysis model (`Qwen3-Coder-30B-A3B` / `gpt-4.1-mini`) checks false positives & complex logic flaws.
 6. **Stage 6 (RAG_MEMORY):** Embeds finding vector (`text-embedding-3-small`) and queries Chroma Cloud (`finding_memory`, threshold `0.35`).
 7. **Stage 7 (SEVERITY_TRIAGE):** Deduplication and risk score calculation:
    $$\text{RiskScore} = \text{CVSS Base} \times 0.6 + \text{Exposure Multiplier} \times 0.25 + \text{RAG History Factor} \times 0.15$$
@@ -288,7 +288,7 @@ render_deployments:
   hackwave-auth-service:
     type: web_service
     env: node
-    root_dir: services/auth
+    root_dir: services/auth_services
     build_command: npm install
     start_command: npm start
     port: 10000
