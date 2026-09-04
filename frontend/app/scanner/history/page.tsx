@@ -13,10 +13,16 @@ import EmptyState from '@/components/ui/EmptyState';
 import ErrorBanner from '@/components/ErrorBanner';
 import VulnerabilityTimeline from '@/components/scanner/VulnerabilityTimeline';
 import { scannerApi } from '@/lib/api';
-
-// Lazily load recharts components — heavy JS not needed on initial paint
-const { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } =
-  (await import('recharts')) as typeof import('recharts');
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 type ScanRecord = {
   scanId: string;

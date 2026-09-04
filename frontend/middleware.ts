@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify, importSPKI } from 'jose';
+import { jwtVerify } from 'jose/jwt/verify';
+import { importSPKI } from 'jose/key/import';
 
 // Runs at the edge before /dashboard and /upload render. This is a UX
 // short-circuit (fast redirect to /login for an obviously missing/expired
@@ -14,7 +15,7 @@ const AUTH_API_URL = process.env.NEXT_PUBLIC_AUTH_API_URL || 'http://localhost:5
 function decodeKey(base64Value: string | undefined) {
   if (!base64Value) return null;
   try {
-    return Buffer.from(base64Value, 'base64').toString('utf8');
+    return typeof atob === 'function' ? atob(base64Value) : Buffer.from(base64Value, 'base64').toString('utf8');
   } catch {
     return null;
   }

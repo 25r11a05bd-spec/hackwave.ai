@@ -358,7 +358,7 @@ export default function FindingCard({
               )}
               {fixStatus?.stillProcessingInBackground && (
                 <span className="text-[10px] font-mono text-text-muted max-w-[220px] text-right">
-                  This is taking longer than usual (bounded retries can take a few minutes) — we're still
+                  This is taking longer than usual (bounded retries can take a few minutes) — we&apos;re still
                   checking. No need to re-approve.
                 </span>
               )}
