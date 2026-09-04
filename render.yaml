@@ -1,0 +1,261 @@
+# Render Blueprint for PatchLine's backend.
+#
+# Deploy with: Render Dashboard -> New -> Blueprint -> point at this repo.
+# Render will create every resource below in one shot; secrets marked
+# `sync: false` are NOT stored here (never commit real secrets) — Render
+# will prompt for each one once, in the dashboard, at first deploy.
+#
+# Service map (matches docs/deployment.md's deploy order):
+#   1. patchline-redis          — managed Redis. Everything below depends on it.
+#   2. patchline-auth           — services/auth-service (Node, Docker)
+#   3. patchline-main           — services/main            (Node, Docker) — web/API
+#   4. patchline-main-worker    — services/main            (Node, Docker) — BullMQ
+#      worker only (same image as #3, different start command) — see
+#      services/main/src/worker.js. Scale this independently of the API.
+#   5. patchline-ai             — services/ai_sevices       (Python, Docker)
+#
+# Vercel (frontend) is NOT part of this blueprint — Render doesn't host it.
+# Deploy the frontend separately per docs/deployment.md step 6, then come
+# back and set FRONTEND_URL / CORS_ORIGINS below to the real Vercel URL.
+
+databases: []
+
+services:
+  # ── 1. Redis — shared by all three Node/Python services ──
+  # BullMQ (scan/fix queues), express-rate-limit's RedisStore (auth-service +
+  # main-service), and ai_sevices' own Redis-backed rate limiting/reconciliation
+  # sweep all point at this one instance. Nothing in the backend keeps
+  # meaningful state in process memory — this is what makes every service
+  # below horizontally scalable (see docs/deployment.md's "Statelessness" note).
+  - type: redis
+    name: patchline-redis
+    plan: starter
+    ipAllowList: [] # only reachable from other Render services in this account
+
+  # ── 2. auth-service ──
+  - type: web
+    name: patchline-auth
+    runtime: docker
+    dockerfilePath: ./services/auth-service/Dockerfile
+    dockerContext: ./services/auth-service
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5000" # Render still injects its own $PORT; env.js reads it either way
+      - key: SERVICE_NAME
+        value: auth-service
+      # Comma-separated, NO wildcard — env.js hard-fails boot in production
+      # if this contains "*" (it's the service's only CSRF defense).
+      # Set this to your real Vercel domain(s) after the frontend is deployed.
+      - key: CORS_ORIGINS
+        value: https://your-app.vercel.app
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DATABASE
+        value: auth_db
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: patchline-redis
+          property: connectionString
+      # RS256 keypair — base64-encoded PEM. Generate once, reuse across
+      # environments only if you accept that a leaked key can't be rotated
+      # without downtime; production should have its own pair. See
+      # docs/security.md for the openssl commands.
+      - key: JWT_PRIVATE_KEY_BASE64
+        sync: false
+      - key: JWT_PUBLIC_KEY_BASE64
+        sync: false
+      - key: JWT_ISSUER
+        value: hackathon-auth-service
+      - key: JWT_AUDIENCE
+        value: patchline
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: JWT_KID
+        value: key-1
+      # Cross-origin cookies (Vercel <-> Render are different domains) —
+      # these three MUST stay exactly as below in production. See
+      # docs/deployment.md's "Cross-origin auth" section before changing any.
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: INTERNAL_SERVICE_TOKEN
+        sync: false # shared secret — same value must be set on patchline-main too
+
+  # ── 3. main-service (API) ──
+  - type: web
+    name: patchline-main
+    runtime: docker
+    dockerfilePath: ./services/main/Dockerfile
+    dockerContext: ./services/main
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5001"
+      - key: SERVICE_NAME
+        value: main-service
+      - key: CORS_ORIGINS
+        value: https://your-app.vercel.app
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: patchline-redis
+          property: connectionString
+      # Inline workers stay OFF on the web instance — patchline-main-worker
+      # below is the only process consuming scan/fix jobs. Running both
+      # would double-process every job.
+      - key: DISABLE_INLINE_WORKERS
+        value: "true"
+      - key: JWT_PUBLIC_KEY_BASE64
+        sync: false # same value as patchline-auth's JWT_PUBLIC_KEY_BASE64
+      - key: JWT_ISSUER
+        value: hackathon-auth-service
+      - key: JWT_AUDIENCE
+        value: patchline
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AI_STORAGE_SERVICE_URL
+        fromService:
+          type: web
+          name: patchline-ai
+          property: hostport
+      - key: INTERNAL_SERVICE_TOKEN
+        sync: false # same value as patchline-auth's
+      - key: FRONTEND_URL
+        value: https://your-app.vercel.app
+      - key: OAUTH_TOKEN_ENCRYPTION_KEY_BASE64
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_REDIRECT_URI
+        value: https://patchline-main.onrender.com/api/github/oauth/callback
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      # ── GitHub App (opt-in migration path — see docs/github-app-migration.md) ──
+      # Leave GITHUB_AUTH_MODE=oauth_app (or omit these entirely) until
+      # you've completed the manual App-registration steps in that doc.
+      - key: GITHUB_AUTH_MODE
+        value: oauth_app
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY_BASE64
+        sync: false
+      - key: GITHUB_APP_WEBHOOK_SECRET
+        sync: false
+      - key: GITHUB_APP_SLUG
+        sync: false
+      - key: JIRA_CLIENT_ID
+        sync: false
+      - key: JIRA_CLIENT_SECRET
+        sync: false
+      - key: JIRA_REDIRECT_URI
+        value: https://patchline-main.onrender.com/api/jira/oauth/callback
+
+  # ── 4. main-service worker (BullMQ scan/fix queues, standalone process) ──
+  # Same image/repo as patchline-main, different start command. Scale this
+  # up independently when scan/fix throughput — not API request volume — is
+  # the bottleneck (Render lets each service scale separately).
+  - type: worker
+    name: patchline-main-worker
+    runtime: docker
+    dockerfilePath: ./services/main/Dockerfile
+    dockerContext: ./services/main
+    dockerCommand: node src/worker.js
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: patchline-redis
+          property: connectionString
+      - key: AI_STORAGE_SERVICE_URL
+        fromService:
+          type: web
+          name: patchline-ai
+          property: hostport
+      - key: INTERNAL_SERVICE_TOKEN
+        sync: false # same value as patchline-auth / patchline-main
+      # Everything else worker.js/scannerWorkers.js needs (Supabase, GitHub,
+      # Jira creds) mirrors patchline-main's env vars above — duplicate them
+      # here via the dashboard, or promote shared ones into a Render env
+      # group (Dashboard -> Env Groups) once you're past first deploy.
+
+  # ── 5. ai_sevices (Python/FastAPI: scanning, RAG, Risk Engine, fixes) ──
+  - type: web
+    name: patchline-ai
+    runtime: docker
+    dockerfilePath: ./services/ai_sevices/Dockerfile
+    dockerContext: ./services/ai_sevices
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PORT
+        value: "5002"
+      - key: CORS_ORIGINS
+        value: https://your-app.vercel.app
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DATABASE
+        value: ai_storage_db
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: patchline-redis
+          property: connectionString
+      - key: JWT_PUBLIC_KEY_BASE64
+        sync: false # same value as patchline-auth's
+      - key: JWT_ISSUER
+        value: hackathon-auth-service
+      - key: JWT_AUDIENCE
+        value: patchline
+      - key: INTERNAL_SERVICE_TOKEN
+        sync: false # same value as the other three services
+      - key: AZURE_STORAGE_CONNECTION_STRING
+        sync: false
+      # ── AI Router (app/services/model_router.py) — Featherless primary ──
+      - key: FEATHERLESS_ENABLED
+        value: "true"
+      - key: FEATHERLESS_API_KEY
+        sync: false
+      - key: FEATHERLESS_BASE_URL
+        value: https://api.featherless.ai/v1
+      # Fallback (used automatically if Featherless errors, or for every
+      # call if FEATHERLESS_ENABLED=false) — pick ONE of openai/azure_openai
+      # and fill in the matching block; AI_PROVIDER selects which.
+      - key: AI_PROVIDER
+        value: openai
+      - key: AI_API_KEY
+        sync: false
+      - key: FALLBACK_PROVIDER
+        value: openai
+      # ── Chroma Cloud (RAG memory — app/core/chroma_client.py) ──
+      - key: RAG_MEMORY_ENABLED
+        value: "true"
+      - key: EMBEDDING_PROVIDER
+        value: azure_openai # or "mock" to run without real embeddings
+      - key: CHROMA_API_KEY
+        sync: false
+      - key: CHROMA_TENANT
+        sync: false
+      - key: CHROMA_DATABASE
+        sync: false
