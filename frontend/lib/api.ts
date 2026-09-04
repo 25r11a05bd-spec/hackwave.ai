@@ -4,12 +4,12 @@ import axios from 'axios';
 // (access_token / refresh_token) that auth-service sets. This is why CORS on
 // every backend must set credentials:true and echo the exact origin.
 export const authApi = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_AUTH_API_URL || 'http://localhost:5000',
+  baseURL: process.env.NEXT_PUBLIC_AUTH_API_URL || process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:5000',
   withCredentials: true,
 });
 
 export const mainApi = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_MAIN_API_URL || 'http://localhost:5001',
+  baseURL: process.env.NEXT_PUBLIC_MAIN_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001',
   withCredentials: true,
 });
 
