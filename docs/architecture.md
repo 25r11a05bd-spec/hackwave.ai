@@ -29,8 +29,8 @@
 - **`auth-service`** is the only service that ever touches the JWT **private** key. It signs access tokens (short-lived, 15m default) and refresh tokens (7d default, rotated on every use, individually revocable via a MongoDB `RefreshToken` collection).
 - **`main-service`** and **`ai-storage-service`** each hold only the **public** key and verify every request's JWT signature locally with `jsonwebtoken` / `PyJWT` (`RS256`). Neither ever calls `auth-service` to check a token. This means:
   - The system keeps working for already-logged-in users even if `auth-service` is briefly down.
-  - Verification is a cheap local CPU operation, not a network hop — critical for high API throughput (see [`docs/load-testing.md`](file:///c:/Users/viven/Desktop/launchpadx/docs/load-testing.md)).
-- **`ai-storage-service`** (Python/FastAPI — the other two services are Node/Express) is deliberately generic: a pluggable AI provider layer (`services/ai-storage-service/app/services/ai_providers/`) plus Azure Blob Storage + MongoDB + Redis + Elasticsearch.
+  - Verification is a cheap local CPU operation, not a network hop — critical for high API throughput.
+- **`ai-storage-service`** (Python/FastAPI — the other two services are Node/Express) is deliberately generic: a pluggable AI provider layer (`services/ai-service/app/services/ai_providers/`) plus Azure Blob Storage + MongoDB + Redis + Elasticsearch.
 
 ---
 
@@ -38,16 +38,16 @@
 
 Two Redis instances, split by ownership rather than shared wholesale (see `docker-compose.yml`):
 
-- **`redis-shared`** — `auth-service` (rate limiting) + `ai-storage-service` (`scan_progress.py`'s real-time pipeline-stage checkpoints, plus anything else `ai-storage-service` caches). Light, low-throughput traffic from both.
+- **`redis-shared`** — `auth-service` (rate limiting) + `ai-service` (`scan_progress.py`'s real-time pipeline-stage checkpoints, plus anything else `ai-service` caches). Light, low-throughput traffic from both.
 - **`redis-main`** — `main-service` + `worker`'s BullMQ scan/fix queues, HTTP cache middleware, rate limiter, and OAuth state. This is the higher-throughput instance (every scan/fix job round-trips through it), and being able to scale/tune it independently from `redis-shared` is the whole point of the split.
 
-The one thing that crosses the split: `ai-storage-service` writes `scan:stage:{scanId}` to `redis-shared` as it completes each real pipeline step (`REPO_FETCHED`, `DETERMINISTIC_SCAN`, ... / `FIX_GENERATING`, `CODEX_VERIFYING`, ...), and `main-service`'s `GET /api/scanner/status/:scanId` needs to read that key to show live progress. `main-service` therefore holds a **second, read-mostly connection** to `redis-shared` for exactly that key namespace (`src/config/sharedRedis.js`, configured via `SHARED_REDIS_URL`) — its BullMQ/cache/rate-limit traffic never touches `redis-shared`, and `ai-storage-service`/`auth-service` never touch `redis-main`.
+The one thing that crosses the split: `ai-service` writes `scan:stage:{scanId}` to `redis-shared` as it completes each real pipeline step (`REPO_FETCHED`, `DETERMINISTIC_SCAN`, ... / `FIX_GENERATING`, `CODEX_VERIFYING`, ...), and `main-service`'s `GET /api/scanner/status/:scanId` needs to read that key to show live progress. `main-service` therefore holds a **second, read-mostly connection** to `redis-shared` for exactly that key namespace (`src/config/sharedRedis.js`, configured via `SHARED_REDIS_URL`) — its BullMQ/cache/rate-limit traffic never touches `redis-shared`, and `ai-service`/`auth-service` never touch `redis-main`.
 
 `SHARED_REDIS_URL` is optional: if unset it falls back to `REDIS_URL`, so a single-Redis deployment (the two instances not actually split) behaves exactly as it did before this topology existed. A `redis-shared` outage degrades the stage checkpoint to "unknown" (the status endpoint returns `stage: null` instead of erroring) — it never fails a scan or a fix, since `scan:record:{scanId}` (the actual status/results) lives entirely on `redis-main`.
 
 ## Key Rotation
 
-`JWT_KID` is embedded in every signed token's header. `JWT_PREVIOUS_PUBLIC_KEY_BASE64` provides a dual-key handover window during rotation — see [`docs/security.md`](file:///c:/Users/viven/Desktop/launchpadx/docs/security.md)'s **JWT key rotation** section for the step-by-step procedure.
+`JWT_KID` is embedded in every signed token's header. `JWT_PREVIOUS_PUBLIC_KEY_BASE64` provides a dual-key handover window during rotation — see [`docs/security.md`](file:///c:/Users/hp/Desktop/hackwave%201th/hackwave.ai/docs/security.md)'s **JWT key rotation** section for the step-by-step procedure.
 
 ## Symmetric vs Asymmetric JWTs
 
